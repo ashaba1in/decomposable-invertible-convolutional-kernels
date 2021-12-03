@@ -5,6 +5,10 @@ from torch import nn
 from torch.nn import functional as F
 
 
+def safe_log(x):
+    return torch.log(x + 1e-10)
+
+
 class SimpleDICK(nn.Module):
 
     def __init__(self, kernel_size: int = 3, device=None, dtype=None):
@@ -27,10 +31,10 @@ class SimpleDICK(nn.Module):
         bc = b * c
         det0 = 1
         det1 = a
-        for i in range(2, size):
+        for i in range(2, size + 1):
             det0, det1 = det1, a * det1 - bc * det0
 
-        log_det = blocks * (size * torch.log(mx) + torch.log(torch.abs(det1) + 1e-8))
+        log_det = size * safe_log(mx) + safe_log(torch.abs(det1))
         # if not torch.isfinite(log_det):
         #     print(b, a, c, bc, mx, torch.log(mx), torch.log(torch.abs(det1) + 1e-8))
         #     det0 = 1
@@ -38,7 +42,52 @@ class SimpleDICK(nn.Module):
         #     for i in range(2, size):
         #         det0, det1 = det1, a * det1 - bc * det0
         #         print(det1)
-        return log_det
+        return blocks * log_det
+
+    @staticmethod
+    def exact_log_det(kernel: torch.Tensor, size: int, blocks: int):
+        b, a, c = kernel
+        D = a ** 2 - 4 * b * c
+        np1 = size + 1
+        if D > 0:
+            # print('pos')
+            sqrtD = torch.sqrt(D)
+            log_apd = safe_log(torch.abs(a + sqrtD))
+            log_amd = safe_log(torch.abs(a - sqrtD))
+
+            if a < 0:
+                # print('a < 0')
+                mx = log_amd
+                delta = log_apd - log_amd
+            else:
+                # print('a > 0')
+                mx = log_apd
+                delta = log_amd - log_apd
+
+            if -sqrtD < a < sqrtD and np1 % 2 == 1:
+                # print('sign +')
+                # remainder = F.softplus(np1 * delta, beta=1)
+                remainder = torch.log1p(torch.exp(np1 * delta))
+            else:
+                # print('sign -')
+                remainder = torch.log1p(-torch.exp(np1 * delta))
+            # print(D, mx, delta, remainder)
+            log_det = -0.5 * safe_log(D) - np1 * math.log(2) + \
+                      np1 * mx + remainder
+
+        elif D < 0:
+            # print('neg')
+            D = torch.abs(D)
+            phi = torch.atan2(torch.sqrt(D), a)
+            sin = torch.abs(torch.sin(np1 * phi))
+            # print(D, a ** 2 + D, phi, sin)
+            log_det = -0.5 * safe_log(D) - size * math.log(2) + np1 * 0.5 * safe_log(a ** 2 + D) + safe_log(sin)
+
+        else:
+            # print('zero')
+            log_det = math.log(np1) - size * math.log(2) + size * safe_log(torch.abs(a))
+
+        return log_det * blocks
 
     def forward(self, x):
         _, _, h, w = x.shape
@@ -52,19 +101,12 @@ class SimpleDICK(nn.Module):
             padding=(self.kernel_size // 2, 0)
         )
 
-        # b, a, c = self.horizontal_kernel
-        # D = a**2 - 4 * b * c
-        # np1 = x.shape[-2] * x.shape[-1] + 1
-        # log_apd = torch.log(a + torch.sqrt(D))
-        # log_amd = torch.log(a - torch.sqrt(D))
-        # log_det = -0.5 * torch.log(D) + (n + 1) * math.log(2) + \
-        #           (n + 1) * log_apd + torch.log1p(-torch.exp((n + 1)))
+        # log_det = SimpleDICK.recursive_log_det(self.vertical_kernel, h, w) + \
+        #           SimpleDICK.recursive_log_det(self.horizontal_kernel, w, h)
 
-        log_det = SimpleDICK.recursive_log_det(self.vertical_kernel, h, w) + \
-                  SimpleDICK.recursive_log_det(self.horizontal_kernel, w, h)
-
+        log_det = SimpleDICK.exact_log_det(self.vertical_kernel, h, w) + \
+                  SimpleDICK.exact_log_det(self.horizontal_kernel, w, h)
         return x, log_det
 
     def backward(self, x):
-
         return x
