@@ -89,11 +89,24 @@ class SimpleDICK(nn.Module):
 
         return log_det * blocks
 
+    @staticmethod
+    def constant_tridiagonal_algorithm(coeffs: torch.Tensor, d: torch.Tensor):
+        a, b, c = coeffs
+        n = d.shape[-1]
+        b_prime = b.repeat(n)
+        for i in range(1, n):
+            w = a / b_prime[i - 1]
+            b_prime[i] -= w * c
+            d[..., i] = d[..., i] - w * d[..., i - 1]
+        d[..., -1] /= b_prime[-1]
+        for i in range(n - 2, -1, -1):
+            d[..., i] = (d[..., i] - c * d[..., i + 1]) / b_prime[i]
+        return d
+
     def forward(self, x):
         _, _, h, w = x.shape
         x = F.conv2d(
-            x,
-            self.horizontal_kernel.unsqueeze(0).unsqueeze(0).unsqueeze(0),
+            x, self.horizontal_kernel.unsqueeze(0).unsqueeze(0).unsqueeze(0),
             padding=(0, self.kernel_size // 2)
         )
         x = F.conv2d(
@@ -109,4 +122,13 @@ class SimpleDICK(nn.Module):
         return x, log_det
 
     def backward(self, x):
+        # vertical inversion
+        x = SimpleDICK.constant_tridiagonal_algorithm(self.horizontal_kernel, x)
+
+        # horizontal inversion
+        x = torch.transpose(x, -2, -1)
+        x = SimpleDICK.constant_tridiagonal_algorithm(self.vertical_kernel, x)
+
+        # transpose image back
+        x = torch.transpose(x, -2, -1)
         return x

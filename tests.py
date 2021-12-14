@@ -14,9 +14,10 @@ def test(reps=1):
     return test_wrapper
 
 
-@test(reps=100)
+# @test(reps=100)
 def separable_equals_full_stress():
     module = SimpleDICK(3)
+    module.requires_grad_(False)
     tensor = torch.randn(2, 1, 32, 32)
     x, _ = module(tensor)
     full_kernel = torch.outer(module.vertical_kernel, module.horizontal_kernel)
@@ -25,16 +26,17 @@ def separable_equals_full_stress():
     assert torch.allclose(x, x_full, atol=1e-5)
 
 
-@test(reps=100)
+# @test(reps=100)
 def log_det_is_finite_stress():
     for dimension in (2 ** i for i in range(4, 10)):
         module = SimpleDICK(3)
+        module.requires_grad_(False)
         tensor = torch.randn(2, 1, dimension, dimension)
         _, log_det = module(tensor)
         assert torch.isfinite(log_det).all()
 
 
-# @test(reps=100)
+# @test(reps=1)
 def log_det_is_correct_stress():
     module = SimpleDICK(3)
     module.requires_grad_(False)
@@ -49,11 +51,11 @@ def log_det_is_correct_stress():
         jac[i] = torch.autograd.grad(x_flat, tensor, grad_outputs=grad_outputs, retain_graph=True)[0]
     # jac = torch.autograd.functional.jacobian(lambda t: module(t.view(1, 1, h, w))[0].view(h * w), tensor)
     _, log_det2 = torch.linalg.slogdet(jac)
-    print(log_det, log_det2)
-    # assert torch.allclose(log_det, log_det2)
+    # print(log_det, log_det2)
+    assert torch.allclose(log_det, log_det2)
 
 
-@test(reps=1)
+# @test(reps=1)
 def log_det_total_inaccuracy():
     diff = 0
     for _ in range(100):
@@ -72,6 +74,17 @@ def log_det_total_inaccuracy():
         _, log_det2 = torch.linalg.slogdet(jac)
         diff += torch.abs(log_det - log_det2)
     print(diff / 100)
+
+@test(reps=1)
+def forward_backward_equals_x():
+    module = SimpleDICK(3)
+    h, w = 32, 32
+    tensor = torch.randn(1, 1, h, w)
+    z, log_det = module.forward(tensor)
+    reconstruction = module.backward(z)
+    print(torch.norm(reconstruction - tensor))
+    assert torch.allclose(tensor, reconstruction, atol=1e-5)
+
 
 
 if __name__ == "__main__":
