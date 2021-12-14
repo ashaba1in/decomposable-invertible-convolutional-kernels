@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+from torch.distributions import Normal
 
 from sick import SimpleDICK
 
@@ -14,7 +15,7 @@ def test(reps=1):
     return test_wrapper
 
 
-# @test(reps=100)
+@test(reps=100)
 def separable_equals_full_stress():
     module = SimpleDICK(3)
     module.requires_grad_(False)
@@ -26,7 +27,7 @@ def separable_equals_full_stress():
     assert torch.allclose(x, x_full, atol=1e-5)
 
 
-# @test(reps=100)
+@test(reps=100)
 def log_det_is_finite_stress():
     for dimension in (2 ** i for i in range(4, 10)):
         module = SimpleDICK(3)
@@ -36,7 +37,7 @@ def log_det_is_finite_stress():
         assert torch.isfinite(log_det).all()
 
 
-# @test(reps=1)
+@test(reps=1)
 def log_det_is_correct_stress():
     module = SimpleDICK(3)
     module.requires_grad_(False)
@@ -55,7 +56,7 @@ def log_det_is_correct_stress():
     assert torch.allclose(log_det, log_det2)
 
 
-# @test(reps=1)
+@test(reps=1)
 def log_det_total_inaccuracy():
     diff = 0
     for _ in range(100):
@@ -75,6 +76,7 @@ def log_det_total_inaccuracy():
         diff += torch.abs(log_det - log_det2)
     print(diff / 100)
 
+
 @test(reps=1)
 def forward_backward_equals_x():
     module = SimpleDICK(3)
@@ -85,6 +87,21 @@ def forward_backward_equals_x():
     print(torch.norm(reconstruction - tensor))
     assert torch.allclose(tensor, reconstruction, atol=1e-5)
 
+
+@test(reps=1)
+def gradient_exists():
+    module = SimpleDICK(3)
+    h, w = 32, 32
+    tensor = torch.randn(1, 1, h, w)
+    z, log_det = module.forward(tensor)
+    d = Normal(loc=torch.zeros_like(z), scale=torch.ones_like(z))
+    (-log_det).backward()
+    assert module.horizontal_kernel.grad is not None
+    assert module.vertical_kernel.grad is not None
+    module.zero_grad(True)
+    (-d.log_prob(z).sum()).backward()
+    assert module.horizontal_kernel.grad is not None
+    assert module.vertical_kernel.grad is not None
 
 
 if __name__ == "__main__":
