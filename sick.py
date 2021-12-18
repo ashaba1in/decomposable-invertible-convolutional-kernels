@@ -6,7 +6,7 @@ from torch.nn import functional as F
 
 
 def safe_log(x):
-    return torch.log(x + 1e-10)
+    return torch.log(torch.clamp(x, 1e-5))
 
 
 class SimpleDICK(nn.Module):
@@ -26,7 +26,7 @@ class SimpleDICK(nn.Module):
 
     @staticmethod
     def recursive_log_det(kernel: torch.Tensor, size: int, blocks: int):
-        mx = kernel.abs().max()
+        mx = kernel.abs().max() + 1e-7
         b, a, c = kernel / mx
         bc = b * c
         det0 = 1
