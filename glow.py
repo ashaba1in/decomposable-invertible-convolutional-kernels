@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import numpy as np
-
+from sick import SimpleDICK
 
 class ActNorm(nn.Module):
     def __init__(self, dim):
@@ -136,7 +136,7 @@ class Flow(nn.Module):
         super().__init__()
 
         self.actnorm = ActNorm(dim)
-        self.invconv = Invertible1x1Conv(dim)
+        self.invconv = SimpleDICK()
         self.coupling = AffineCoupling(dim)
 
     def forward(self, x):
