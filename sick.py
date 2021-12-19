@@ -13,11 +13,22 @@ class SimpleDICK(nn.Module):
     def __init__(self, kernel_size: int = 3, device=None, dtype=None):
         factory_kwargs = {'device': device, 'dtype': dtype}
         super(SimpleDICK, self).__init__()
+        assert kernel_size == 3
         self.kernel_size = kernel_size
-        self.horizontal_kernel = nn.Parameter(torch.empty(kernel_size, **factory_kwargs))
-        self.vertical_kernel = nn.Parameter(torch.empty(kernel_size, **factory_kwargs))
-        self.reset_parameters()
 
+        def init_kernel():
+            init_bounds = 1 / math.sqrt(kernel_size)
+            kernel = torch.empty(kernel_size, **factory_kwargs)
+            kernel.uniform_(-init_bounds, init_bounds)
+
+            diag_pos = self.kernel_size // 2
+            kernel[diag_pos] = 4 * kernel[0].abs() * kernel[-1].abs() + 0.1 * torch.rand(1)
+            return kernel
+
+        self.horizontal_kernel = nn.Parameter(init_kernel())
+        self.vertical_kernel = nn.Parameter(init_kernel())
+
+    @torch.no_grad()
     def reset_parameters(self):
         init_bounds = 1 / math.sqrt(self.kernel_size)
         nn.init.uniform_(self.horizontal_kernel, -init_bounds, init_bounds)
