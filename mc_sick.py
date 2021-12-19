@@ -133,13 +133,13 @@ class MultichannelDICK(nn.Module):
         x = torch.empty_like(y)
         for i in range(self.num_channels):
             # vertical inversion
-            x[:, i] = MultichannelDICK.constant_tridiagonal_algorithm(
-                self.vertical_kernels[i], y[:, i].transpose(-2, -1)
+            x[:, i:i + 1] = MultichannelDICK.constant_tridiagonal_algorithm(
+                self.vertical_kernels[i], y[:, i:i + 1].transpose(-2, -1)
             ).transpose(-2, -1)
 
             # horizontal inversion
-            x[:, i] = MultichannelDICK.constant_tridiagonal_algorithm(
-                self.horizontal_kernels[i], x[:, i]
+            x[:, i:i + 1] = MultichannelDICK.constant_tridiagonal_algorithm(
+                self.horizontal_kernels[i], x[:, i:i + 1]
             )
 
         return x
