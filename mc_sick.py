@@ -120,12 +120,12 @@ class MultichannelDICK(nn.Module):
                 padding=(0, self.kernel_size // 2)
             )
             y[:, i:i + 1] = F.conv2d(
-                y[:, i:i + 1], self.vertical_kernel.unsqueeze(-1).unsqueeze(0).unsqueeze(0),
+                y[:, i:i + 1], self.vertical_kernels[i].unsqueeze(-1).unsqueeze(0).unsqueeze(0),
                 padding=(self.kernel_size // 2, 0)
             )
 
-            log_det += MultichannelDICK.exact_log_det(self.vertical_kernel, h, w)
-            log_det += MultichannelDICK.exact_log_det(self.horizontal_kernel, w, h)
+            log_det += MultichannelDICK.exact_log_det(self.vertical_kernels[i], h, w)
+            log_det += MultichannelDICK.exact_log_det(self.horizontal_kernels[i], w, h)
 
         return y, log_det
 
