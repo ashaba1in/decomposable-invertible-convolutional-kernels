@@ -134,12 +134,12 @@ class MultichannelDICK(nn.Module):
         for i in range(self.num_channels):
             # vertical inversion
             x[:, i] = MultichannelDICK.constant_tridiagonal_algorithm(
-                self.vertical_kernels[i], y[:, i]
-            )
+                self.vertical_kernels[i], y[:, i].transpose(-2, -1)
+            ).transpose(-2, -1)
 
             # horizontal inversion
             x[:, i] = MultichannelDICK.constant_tridiagonal_algorithm(
-                self.horizontal_kernels[i], x[:, i].transpose(-2, -1)
-            ).transpose(-2, -1)
+                self.horizontal_kernels[i], x[:, i]
+            )
 
         return x

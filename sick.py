@@ -122,12 +122,12 @@ class SimpleDICK(nn.Module):
 
     def backward(self, x):
         # vertical inversion
-        x = SimpleDICK.constant_tridiagonal_algorithm(self.vertical_kernel, x)
-
-        # horizontal inversion
         x = torch.transpose(x, -2, -1)
-        x = SimpleDICK.constant_tridiagonal_algorithm(self.horizontal_kernel, x)
+        x = SimpleDICK.constant_tridiagonal_algorithm(self.vertical_kernel, x)
 
         # transpose image back
         x = torch.transpose(x, -2, -1)
+
+        # horizontal inversion
+        x = SimpleDICK.constant_tridiagonal_algorithm(self.horizontal_kernel, x)
         return x
