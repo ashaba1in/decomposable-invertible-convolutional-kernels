@@ -136,20 +136,23 @@ class Flow(nn.Module):
         super().__init__()
 
         self.actnorm = ActNorm(dim)
-        self.invconv = SimpleDICK()
-        self.coupling = AffineCoupling(dim)
+        self.invconv = Invertible1x1Conv(dim)
+        self.dick = SimpleDICK()
+        # self.coupling = AffineCoupling(dim)
 
     def forward(self, x):
         z, logdet = self.actnorm(x)
         z, det1 = self.invconv(z)
-        z, det2 = self.coupling(z)
+        z, det2 = self.dick(x)
+        # z, det2 = self.coupling(z)
 
         logdet = logdet + det1 + det2
 
         return z, logdet
 
     def backward(self, z):
-        x = self.coupling.backward(z)
+        # x = self.coupling.backward(z)
+        x = self.dick.backward(z)
         x = self.invconv.backward(x)
         x = self.actnorm.backward(x)
 
@@ -168,7 +171,7 @@ class Block(nn.Module):
     def __init__(self, dim, n_flow, split=True):
         super().__init__()
 
-        squeeze_dim = dim * 4
+        squeeze_dim = dim * 4 # remove // 4
 
         self.flows = nn.ModuleList()
         for i in range(n_flow):
@@ -178,15 +181,17 @@ class Block(nn.Module):
 
         if split:
             self.prior = ZeroConv2d(dim * 2, dim * 4)
+            # self.prior = ZeroConv2d(dim, dim)
         else:
             self.prior = ZeroConv2d(dim * 4, dim * 8)
+            # self.prior = ZeroConv2d(dim, dim)
 
     def forward(self, x):
         b_size, n_c, h, w = x.shape
         squeezed = x.view(b_size, n_c, h // 2, 2, w // 2, 2)
         squeezed = squeezed.permute(0, 1, 3, 5, 2, 4)
         z = squeezed.contiguous().view(b_size, n_c * 4, h // 2, w // 2)
-
+        # z = x
         logdet = 0
 
         for flow in self.flows:
@@ -227,6 +232,7 @@ class Block(nn.Module):
 
         b_size, n_c, h, w = x.shape
 
+        unsqueezed = x
         unsqueezed = x.view(b_size, n_c // 4, 2, 2, h, w)
         unsqueezed = unsqueezed.permute(0, 1, 4, 2, 5, 3)
         unsqueezed = unsqueezed.contiguous().view(
