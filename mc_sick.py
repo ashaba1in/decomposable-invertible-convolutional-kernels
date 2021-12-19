@@ -2,12 +2,10 @@ import math
 import torch
 from torch import nn
 from torch.nn import functional as F
+from sick import SimpleDICK
 
 
-def safe_log(x):
-    return torch.log(torch.clamp(x, 1e-5))
-
-
+'''
 class MultichannelDICK(nn.Module):
     def __init__(self, num_channels: int = 3, kernel_size: int = 3, device=None, dtype=None):
         factory_kwargs = {'device': device, 'dtype': dtype}
@@ -133,13 +131,42 @@ class MultichannelDICK(nn.Module):
         x = torch.empty_like(y)
         for i in range(self.num_channels):
             # vertical inversion
-            x[:, i] = MultichannelDICK.constant_tridiagonal_algorithm(
-                self.vertical_kernels[i], y[:, i].transpose(-2, -1)
+            x[:, i:i + 1] = MultichannelDICK.constant_tridiagonal_algorithm(
+                self.vertical_kernels[i], y[:, i:i + 1].transpose(-2, -1)
             ).transpose(-2, -1)
 
             # horizontal inversion
-            x[:, i] = MultichannelDICK.constant_tridiagonal_algorithm(
-                self.horizontal_kernels[i], x[:, i]
+            x[:, i:i + 1] = MultichannelDICK.constant_tridiagonal_algorithm(
+                self.horizontal_kernels[i], x[:, i:i + 1]
             )
 
+        return x
+'''
+
+
+class MultichannelDICK(nn.Module):
+    def __init__(self, num_channels: int = 3, kernel_size: int = 3, device=None, dtype=None):
+        super(MultichannelDICK, self).__init__()
+        self.num_channels = num_channels
+        self.kernels = nn.ModuleList([SimpleDICK(kernel_size, device, dtype) \
+                                      for _ in range(num_channels)])
+
+    def forward(self, x: torch.Tensor):
+        y = []
+        log_det = 0.0
+        for i in range(self.num_channels):
+            result, log_det_add = self.kernels[i].forward(x[:, i:i + 1])
+            y += [result]
+            log_det += log_det_add
+
+        y = torch.cat(y, dim=1)
+        return y, log_det
+
+    def backward(self, y: torch.Tensor):
+        x = []
+        for i in range(self.num_channels):
+            result = self.kernels[i].backward(y[:, i:i + 1])
+            x += [result]
+
+        x = torch.cat(x, dim=1)
         return x
