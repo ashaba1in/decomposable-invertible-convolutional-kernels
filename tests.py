@@ -1,8 +1,21 @@
 import torch
 import torch.nn.functional as F
 from torch.distributions import Normal
+from torchvision.datasets import MNIST
+from torchvision.transforms import ToTensor
 
 from sick import SimpleDICK
+
+mnist = MNIST(
+    'test_data',
+    train=True,
+    download=True,
+    transform=ToTensor()
+)
+
+def get_rand_input(batch_size=1):
+    ns = torch.randperm(len(mnist))[:batch_size]
+    return torch.stack([mnist[i][0] for i in ns])
 
 test_registry = []
 
@@ -15,11 +28,11 @@ def test(reps=1):
     return test_wrapper
 
 
-@test(reps=100)
+@test(reps=1)
 def separable_equals_full_stress():
     module = SimpleDICK(3)
     module.requires_grad_(False)
-    tensor = torch.randn(2, 1, 32, 32)
+    tensor = get_rand_input(5)
     x, _ = module(tensor)
     full_kernel = torch.outer(module.vertical_kernel, module.horizontal_kernel)
     x_full = F.conv2d(tensor, full_kernel.unsqueeze(0).unsqueeze(0), padding=module.kernel_size // 2)
@@ -27,7 +40,7 @@ def separable_equals_full_stress():
     assert torch.allclose(x, x_full, atol=1e-5)
 
 
-@test(reps=100)
+@test(reps=1)
 def log_det_is_finite_stress():
     for dimension in (2 ** i for i in range(4, 10)):
         module = SimpleDICK(3)
@@ -77,11 +90,10 @@ def log_det_total_inaccuracy():
     print(diff / 100)
 
 
-@test(reps=1)
+@test(reps=10)
 def forward_backward_equals_x():
     module = SimpleDICK(3)
-    h, w = 32, 32
-    tensor = torch.randn(1, 1, h, w)
+    tensor = get_rand_input(2)
     z, log_det = module.forward(tensor)
     reconstruction = module.backward(z)
     print(torch.norm(reconstruction - tensor))
