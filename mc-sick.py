@@ -1,5 +1,4 @@
 import math
-
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -9,19 +8,25 @@ def safe_log(x):
     return torch.log(torch.clamp(x, 1e-5))
 
 
-class SimpleDICK(nn.Module):
-    def __init__(self, kernel_size: int = 3, device=None, dtype=None):
+class MultichannelDICK(nn.Module):
+    def __init__(self, num_channels: int = 3, kernel_size: int = 3, device=None, dtype=None):
         factory_kwargs = {'device': device, 'dtype': dtype}
-        super(SimpleDICK, self).__init__()
+        super(MultichannelDICK, self).__init__()
+        self.num_channels = num_channels
         self.kernel_size = kernel_size
-        self.horizontal_kernel = nn.Parameter(torch.empty(kernel_size, **factory_kwargs))
-        self.vertical_kernel = nn.Parameter(torch.empty(kernel_size, **factory_kwargs))
+        self.horizontal_kernels = nn.ParameterList([
+            nn.Parameter(torch.empty(kernel_size, **factory_kwargs)) for _ in range(num_channels)
+        ])
+        self.vertical_kernels = nn.ParameterList([
+            nn.Parameter(torch.empty(kernel_size, **factory_kwargs)) for _ in range(num_channels)
+        ])
         self.reset_parameters()
 
     def reset_parameters(self):
         init_bounds = 1 / math.sqrt(self.kernel_size)
-        nn.init.uniform_(self.horizontal_kernel, -init_bounds, init_bounds)
-        nn.init.uniform_(self.vertical_kernel, -init_bounds, init_bounds)
+        for i in range(self.num_channels):
+            nn.init.uniform_(self.horizontal_kernels[i], -init_bounds, init_bounds)
+            nn.init.uniform_(self.vertical_kernels[i], -init_bounds, init_bounds)
 
     @staticmethod
     def recursive_log_det(kernel: torch.Tensor, size: int, blocks: int):
@@ -102,32 +107,39 @@ class SimpleDICK(nn.Module):
             d[..., i] = (d[..., i] - c * d[..., i + 1]) / b_prime[i]
         return d
 
-    def forward(self, x):
-        _, _, h, w = x.shape
-        x = F.conv2d(
-            x, self.horizontal_kernel.unsqueeze(0).unsqueeze(0).unsqueeze(0),
-            padding=(0, self.kernel_size // 2)
-        )
-        x = F.conv2d(
-            x, self.vertical_kernel.unsqueeze(-1).unsqueeze(0).unsqueeze(0),
-            padding=(self.kernel_size // 2, 0)
-        )
+    def forward(self, x: torch.Tensor):
+        _, c, h, w = x.shape
+        assert c == self.num_channels
 
-        # log_det = SimpleDICK.recursive_log_det(self.vertical_kernel, h, w) + \
-        #           SimpleDICK.recursive_log_det(self.horizontal_kernel, w, h)
+        y = torch.empty_like(x)
+        log_det = 0.0
 
-        log_det = SimpleDICK.exact_log_det(self.vertical_kernel, h, w) + \
-                  SimpleDICK.exact_log_det(self.horizontal_kernel, w, h)
-        return x, log_det
+        for i in range(self.num_channels):
+            y[:, i:i + 1] = F.conv2d(
+                x[:, i:i + 1], self.horizontal_kernels[i].unsqueeze(0).unsqueeze(0).unsqueeze(0),
+                padding=(0, self.kernel_size // 2)
+            )
+            y[:, i:i + 1] = F.conv2d(
+                y[:, i:i + 1], self.vertical_kernel.unsqueeze(-1).unsqueeze(0).unsqueeze(0),
+                padding=(self.kernel_size // 2, 0)
+            )
 
-    def backward(self, x):
-        # vertical inversion
-        x = SimpleDICK.constant_tridiagonal_algorithm(self.vertical_kernel, x)
+            log_det += MultichannelDICK.exact_log_det(self.vertical_kernel, h, w)
+            log_det += MultichannelDICK.exact_log_det(self.horizontal_kernel, w, h)
 
-        # horizontal inversion
-        x = torch.transpose(x, -2, -1)
-        x = SimpleDICK.constant_tridiagonal_algorithm(self.horizontal_kernel, x)
+        return y, log_det
 
-        # transpose image back
-        x = torch.transpose(x, -2, -1)
+    def backward(self, y: torch.Tensor):
+        x = torch.empty_like(y)
+        for i in range(self.num_channels):
+            # vertical inversion
+            x[:, i] = MultichannelDICK.constant_tridiagonal_algorithm(
+                self.vertical_kernels[i], y[:, i]
+            )
+
+            # horizontal inversion
+            x[:, i] = MultichannelDICK.constant_tridiagonal_algorithm(
+                self.horizontal_kernels[i], x[:, i].transpose(-2, -1)
+            ).transpose(-2, -1)
+
         return x
