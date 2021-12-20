@@ -346,6 +346,7 @@ class SimpleFlow(nn.Module):
 
         return x
 
+
 class SimpleGlow(nn.Module):
     def __init__(self, dim, n_flow, n_block):
         super().__init__()
@@ -407,3 +408,7 @@ class SimpleGlow(nn.Module):
     @torch.no_grad()
     def sample(self, size):
         return self.backward(self.sample_z(size))
+
+    def project_filters(self):
+        for block in self.blocks:
+            block.dick.project_kernels()

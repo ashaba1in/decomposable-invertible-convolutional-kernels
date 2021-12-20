@@ -29,3 +29,7 @@ class MultichannelDICK(nn.Module):
 
         x = torch.cat(x, dim=1)
         return x
+
+    def project_kernels(self):
+        for kernel in self.kernels:
+            kernel.project_kernels()

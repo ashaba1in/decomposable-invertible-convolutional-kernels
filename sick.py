@@ -17,7 +17,14 @@ class SimpleDICK(nn.Module):
         self.kernel_size = kernel_size
         self.horizontal_kernel = nn.Parameter(torch.empty(kernel_size, **factory_kwargs))
         self.vertical_kernel = nn.Parameter(torch.empty(kernel_size, **factory_kwargs))
-        self.reset_parameters()
+
+        def init_kernel():
+            kernel = torch.empty(kernel_size, **factory_kwargs)
+            kernel.uniform_(1., 2.)
+            return kernel
+
+        self.horizontal_kernel = nn.Parameter(init_kernel())
+        self.vertical_kernel = nn.Parameter(init_kernel())
 
     def reset_parameters(self):
         init_bounds = 1 / math.sqrt(self.kernel_size)
@@ -133,3 +140,7 @@ class SimpleDICK(nn.Module):
         x = SimpleDICK.constant_tridiagonal_algorithm(self.horizontal_kernel, x)
 
         return x
+
+    def project_kernels(self):
+        torch.clamp(self.horizontal_kernel, 1., 2.)
+        torch.clamp(self.vertical_kernel, 1., 2.)
