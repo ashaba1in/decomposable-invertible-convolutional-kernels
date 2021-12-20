@@ -13,7 +13,7 @@ class SimpleDICK(nn.Module):
 
     def __init__(self, kernel_size: int = 3, device=None, dtype=None):
         factory_kwargs = {'device': device, 'dtype': dtype}
-        super(SimpleDICK, self).__init__()
+        super().__init__()
         self.kernel_size = kernel_size
         self.horizontal_kernel = nn.Parameter(torch.empty(kernel_size, **factory_kwargs))
         self.vertical_kernel = nn.Parameter(torch.empty(kernel_size, **factory_kwargs))
@@ -122,13 +122,14 @@ class SimpleDICK(nn.Module):
         return x, log_det
 
     def backward(self, x):
-        # vertical inversion
-        x = SimpleDICK.constant_tridiagonal_algorithm(self.horizontal_kernel, x)
-
         # horizontal inversion
         x = torch.transpose(x, -2, -1)
         x = SimpleDICK.constant_tridiagonal_algorithm(self.vertical_kernel, x)
 
         # transpose image back
         x = torch.transpose(x, -2, -1)
+
+        # vertical inversion
+        x = SimpleDICK.constant_tridiagonal_algorithm(self.horizontal_kernel, x)
+
         return x

@@ -3,6 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 import numpy as np
 from sick import SimpleDICK
+from mc_sick import MultichannelDICK
 
 class ActNorm(nn.Module):
     def __init__(self, dim):
@@ -132,27 +133,29 @@ class AffineCoupling(nn.Module):
 
 
 class Flow(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim, conv_type=0):
         super().__init__()
 
         self.actnorm = ActNorm(dim)
-        self.invconv = Invertible1x1Conv(dim)
-        self.dick = SimpleDICK()
-        # self.coupling = AffineCoupling(dim)
+        if conv_type == 0:
+            self.invconv = Invertible1x1Conv(dim)
+        else:
+            self.invconv = MultichannelDICK(dim)
+        self.coupling = AffineCoupling(dim)
 
     def forward(self, x):
         z, logdet = self.actnorm(x)
         z, det1 = self.invconv(z)
-        z, det2 = self.dick(x)
-        # z, det2 = self.coupling(z)
+        # z, det2 = self.dick(x)
+        z, det3 = self.coupling(z)
 
-        logdet = logdet + det1 + det2
+        logdet = logdet + det1 + det3
 
         return z, logdet
 
     def backward(self, z):
-        # x = self.coupling.backward(z)
-        x = self.dick.backward(z)
+        x = self.coupling.backward(z)
+        # x = self.dick.backward(z)
         x = self.invconv.backward(x)
         x = self.actnorm.backward(x)
 
@@ -175,7 +178,7 @@ class Block(nn.Module):
 
         self.flows = nn.ModuleList()
         for i in range(n_flow):
-            self.flows.append(Flow(squeeze_dim))
+            self.flows.append(Flow(squeeze_dim, i % 2))
 
         self.split = split
 
@@ -314,3 +317,93 @@ class Glow(nn.Module):
     def sample(self, size):
         return self.backward(self.sample_z(size))
 
+
+class SimpleFlow(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+
+        self.actnorm = ActNorm(dim)
+        self.invconv = Invertible1x1Conv(dim)
+        self.dick = MultichannelDICK(dim)
+        # self.coupling = AffineCoupling(dim)
+
+    def forward(self, x):
+        z, logdet = self.actnorm(x)
+        z, det1 = self.invconv(z)
+        z, det2 = self.dick(x)
+        
+        # z, det2 = self.coupling(z)
+
+        logdet = logdet + det1 + det2
+
+        return z, logdet
+
+    def backward(self, z):
+        # x = self.coupling.backward(z)
+        x = self.dick.backward(z)
+        x = self.invconv.backward(x)
+        x = self.actnorm.backward(x)
+
+        return x
+
+class SimpleGlow(nn.Module):
+    def __init__(self, dim, n_flow, n_block):
+        super().__init__()
+
+        self.n_channels = dim
+        self.n_block = n_block
+
+        self.blocks = nn.ModuleList()
+        n_channel = dim
+        for i in range(n_block):
+            self.blocks.append(SimpleFlow(n_channel))
+            n_channel *= 2
+
+    def forward(self, x):
+        log_p_sum = 0
+        logdet = 0
+        z = x
+
+        for block in self.blocks:
+            z, det = block(z)
+            logdet = logdet + det
+
+
+        return z, logdet
+
+    def backward(self, z):
+        for i, block in enumerate(self.blocks[::-1]):
+            z = block.backward(z)
+
+        return z
+
+    def calc_z_shapes(self, input_size=32):
+        n_channel = self.n_channels
+        z_shapes = []
+
+        for i in range(self.n_block - 1):
+            input_size //= 2
+            n_channel *= 2
+
+            z_shapes.append((n_channel, input_size, input_size))
+
+        input_size //= 2
+        z_shapes.append((n_channel * 4, input_size, input_size))
+
+        return z_shapes
+
+    def sample_z(self, size):
+        device = next(self.parameters()).device
+
+        z_shapes = self.calc_z_shapes()
+
+        z_sample = []
+        for z in z_shapes:
+            z_new = torch.randn(size, *z) * 0.7
+            z_sample.append(z_new.to(device))
+
+        return z_sample
+
+    @torch.no_grad()
+    def sample(self, size):
+        return self.backward(self.sample_z(size))
